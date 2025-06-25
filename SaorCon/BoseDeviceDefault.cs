@@ -1,11 +1,14 @@
-﻿using InTheHand.Net;
+﻿using Hardcodet.Wpf.TaskbarNotification.Interop;
+using InTheHand.Net;
 using InTheHand.Net.Bluetooth;
 using InTheHand.Net.Sockets;
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 using Windows.Devices.Bluetooth;
 
 namespace SaorCon
@@ -15,7 +18,10 @@ namespace SaorCon
         ConnectCommand,
         QueryStatusCommand,
         QueryBatteryCommand,
-        SetAncCommand
+        SetAncCommand,
+        SetAncMax,
+        SetAncMin,
+        SetAncMid
     }
 
     public class BoseUnsubscriber : IDisposable
@@ -45,6 +51,8 @@ namespace SaorCon
         public Int16    BatteryLevel    { get; private set; } = -1;
         public string   DeviceName      { get; private set; } = "Unknown Device";
         public string   DeviceId        { get; } = null;
+        
+        public static NotifyIcon notifyIco { get; set; }
 
         public BoseDeviceDefault ( BluetoothDevice device )
         {
@@ -95,7 +103,7 @@ namespace SaorCon
                 return;
 
             if ( level == 1 )
-                level = 3;
+                level = 1;
             else if ( level == 2 )
                 level = 1;
             else if ( level != 0 )
@@ -104,9 +112,15 @@ namespace SaorCon
             if ( m_ancLevelSet == level )
                 return;
 
-            m_ancLevelSet = level;
-            SendCommand( BoseCommand.SetAncCommand, new byte[] { Convert.ToByte( level ) } );
-            
+            //level = 5;
+            //m_ancLevelSet = level;
+
+            //SendCommand(BoseCommand.SetAncMax);
+            //SendCommand(BoseCommand.SetAncMid);
+
+            //SendCommand(BoseCommand.SetAncCommand, new byte[] { Convert.ToByte(level) });
+
+
             // TODO - set task to trigger after ~1 second to call this function again if level ACK not received
         }
 
@@ -216,12 +230,49 @@ namespace SaorCon
 
         }
 
+        public static NotifyIcon ShowText(string text, Font font, Color col, NotifyIcon notifyIcon = null)
+        {
+            if(notifyIcon != null)
+            {
+                notifyIcon.Dispose();
+            }
+            
+            notifyIcon = new NotifyIcon();
+            Brush brush = new SolidBrush(col);
+
+            // Create a bitmap and draw text on it
+            Bitmap bitmap = new Bitmap(16, 16);
+            Graphics graphics = Graphics.FromImage(bitmap);
+            graphics.DrawString(text, font, brush, 0, 0);
+
+            // Convert the bitmap with text to an Icon
+            Icon icon = Icon.FromHandle(bitmap.GetHicon());
+
+            // show icon on the system tray
+            if (notifyIcon == null)
+            {
+                
+            }
+            
+            notifyIcon.Icon = Icon.FromHandle(bitmap.GetHicon());
+            notifyIcon.Visible = true;
+
+            // clear existing icons
+
+            return notifyIcon;
+            
+        }
+
         private static Int16 ConvertBatteryLevel( byte[] payload )
         {
-            if ( payload.Length != 1 )
-                //TODO
-                return -1;
-
+            // Bose NC 700 always returns payload length 4, but first value in the array is battery level
+            //if ( payload.Length != 1 )
+            //    //TODO
+            //    return -1;
+            Font font = new Font("Consolas", 10, FontStyle.Regular);
+            Color color = Color.FromArgb(0, 255, 0);
+            notifyIco = ShowText(payload[0].ToString(), font, color, notifyIco);
+            
             return Convert.ToInt16( payload[0] );
         }
 
@@ -307,7 +358,16 @@ namespace SaorCon
                         ReadIncomingMessages();
                         Thread.Sleep( 1000 );
                     }
-                }, token );            
+                }, token );
+
+            Task.Factory.StartNew(() =>
+            {
+                while (Connected && !token.IsCancellationRequested)
+                {
+                    SendCommand(BoseCommand.QueryBatteryCommand, force: true);
+                    Thread.Sleep(60000);
+                }
+            }, token);
         }
 
         private void DeviceConnectionStateChanged( BluetoothDevice sender, object args )
@@ -346,7 +406,10 @@ namespace SaorCon
             { BoseCommand.ConnectCommand,      new byte[] { 0x00, 0x01, 0x01 } },
             { BoseCommand.QueryStatusCommand,  new byte[] { 0x01, 0x01, 0x05 } },
             { BoseCommand.QueryBatteryCommand, new byte[] { 0x02, 0x02, 0x01 } },
-            { BoseCommand.SetAncCommand,       new byte[] { 0x01, 0x06, 0x02 } }
+            { BoseCommand.SetAncCommand,       new byte[] { 0x01, 0x05, 0x02 } },
+            { BoseCommand.SetAncMax,       new byte[] { 0x01, 0x05, 0x02, 0x00, 0x01 } },
+            { BoseCommand.SetAncMin,       new byte[] { 0x01, 0x05, 0x02, 0x0A, 0x01 } },
+            { BoseCommand.SetAncMid,       new byte[] { 0x01, 0x05, 0x02, 0x05, 0x01 } }
         };
 
         private static readonly Dictionary<BoseMessage, byte[]> BoseMessageCodes = new Dictionary<BoseMessage, byte[]>
